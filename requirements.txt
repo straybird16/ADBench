@@ -1,8 +1,8 @@
-pyod==1.0.0
-rtdl
-scikit-learn
-torch
-keras
+#pyod==1.0.0
+#rtdl
+#scikit-learn
+#torch
+#keras
 tensorflow
 delu
 lightgbm

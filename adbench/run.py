@@ -14,7 +14,7 @@ from adbench.myutils import Utils
 
 class RunPipeline():
     def __init__(self, suffix:str=None, mode:str='rla', parallel:str=None,
-                 generate_duplicates=True, n_samples_threshold=1000,
+                 generate_duplicates=True, n_samples_threshold=10000,
                  realistic_synthetic_mode:str=None,
                  noise_type=None):
         '''
@@ -198,6 +198,7 @@ class RunPipeline():
             # fitting
             start_time = time.time()
             self.clf = self.clf.fit(X_train=self.data['X_train'], y_train=self.data['y_train'])
+            #self.clf = self.clf.fit(self.data['X_train'], self.data['y_train'])
             end_time = time.time(); time_fit = end_time - start_time
 
             # predicting score (inference)
@@ -209,6 +210,8 @@ class RunPipeline():
             end_time = time.time(); time_inference = end_time - start_time
 
             # performance
+            print(self.data['y_test'].shape)
+            print(score_test.shape)
             result = self.utils.metric(y_true=self.data['y_test'], y_score=score_test, pos_label=1)
 
             K.clear_session()
@@ -217,7 +220,7 @@ class RunPipeline():
             del self.clf
             gc.collect()
 
-        except Exception as error:
+        except NotImplementedError as error:
             print(f'Error in model fitting. Model:{self.model_name}, Error: {error}')
             time_fit, time_inference = None, None
             result = {'aucroc': np.nan, 'aucpr': np.nan}

@@ -368,4 +368,5 @@ class DataGenerator():
         y_train[idx_unlabeled] = 0
         y_train[idx_labeled_anomaly] = 1
 
+        #print("generator function: X_trian shape :{} y_train shape :{} X_test shape :{} y_test shape :{}".format(X_train.shape, y_train.shape, X_test.shape, y_test.shape))
         return {'X_train':X_train, 'y_train':y_train, 'X_test':X_test, 'y_test':y_test}
