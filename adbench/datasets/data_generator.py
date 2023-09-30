@@ -107,10 +107,11 @@ class DataGenerator():
             if X.shape[1] > 50:
                 idx = np.random.choice(np.arange(X.shape[1]), 50, replace=False)
                 X = X[:, idx]
-
+            #print("C-Vine...")
             copula = VineCopula('center') # default is the C-vine copula
+            #print("Finished copula generating...")
             copula.fit(pd.DataFrame(X))
-
+            #print("Finished copula fitting...")
             # sample to generate synthetic normal data
             X_synthetic_normal = copula.sample(pts_n).values
 
@@ -132,11 +133,12 @@ class DataGenerator():
             X_synthetic_anomalies = np.zeros((pts_a, X.shape[1]))
 
             # using the GuassianKDE for generating independent feature
+            #print("Gaussian KDE...")
             for i in range(X.shape[1]):
                 kde = GaussianKDE()
                 kde.fit(X[:, i])
                 X_synthetic_anomalies[:, i] = kde.sample(pts_a)
-
+            #print("Finished Gaussian KDE...")
         elif realistic_synthetic_mode == 'global':
             # generate the synthetic anomalies (global outliers)
             X_synthetic_anomalies = []
@@ -155,7 +157,7 @@ class DataGenerator():
         X = np.concatenate((X_synthetic_normal, X_synthetic_anomalies), axis=0)
         y = np.append(np.repeat(0, X_synthetic_normal.shape[0]),
                       np.repeat(1, X_synthetic_anomalies.shape[0]))
-
+        #print("Generate dependency OK...")
         return X, y
 
 

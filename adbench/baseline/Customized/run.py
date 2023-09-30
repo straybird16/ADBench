@@ -21,7 +21,9 @@ class SimpleAE():
         if preprocess:
             X_train = self.preprocessor.fit_transform(X_train)
         # Initialization
-        self.model = ae(num_feature=X_train.shape[-1], latent_dim=X_train.shape[-1]//2)
+        latent_dim = min(max(math.ceil(math.log2(X_train.shape[0])), 8), X_train.shape[-1]//2)
+        self.model = ae(num_feature=X_train.shape[-1], latent_dim=latent_dim)
+        #self.model = ae(num_feature=X_train.shape[-1], latent_dim=X_train.shape[-1]//2)
         #self.model = ae(num_feature=X_train.shape[-1], latent_dim=math.ceil(math.log2(X_train.shape[0])))
 
         # fitting

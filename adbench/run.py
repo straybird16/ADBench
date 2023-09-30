@@ -14,9 +14,9 @@ from adbench.myutils import Utils
 
 class RunPipeline():
     def __init__(self, suffix:str=None, mode:str='rla', parallel:str=None,
-                 generate_duplicates=True, n_samples_threshold=10000,
+                 generate_duplicates=True, n_samples_threshold=2000,
                  realistic_synthetic_mode:str=None,
-                 noise_type=None):
+                 noise_type=None, num_seed:int=1):
         '''
         :param suffix: saved file suffix (including the model performance result and model weights)
         :param mode: rla or nla —— ratio of labeled anomalies or number of labeled anomalies
@@ -57,7 +57,7 @@ class RunPipeline():
         # number of labeled anomalies
         self.nla_list = [0, 1, 5, 10, 25, 50, 75, 100]
         # seed list
-        self.seed_list = list(np.arange(3) + 1)
+        self.seed_list = list(np.arange(num_seed) + 1)
 
         if self.noise_type is None:
             pass
