@@ -14,7 +14,7 @@ from adbench.myutils import Utils
 
 class RunPipeline():
     def __init__(self, suffix:str=None, mode:str='rla', parallel:str=None,
-                 generate_duplicates=True, n_samples_threshold=2000,
+                 generate_duplicates=True, n_samples_threshold=1000,
                  realistic_synthetic_mode:str=None,
                  noise_type=None, num_seed:int=1):
         '''
@@ -57,7 +57,7 @@ class RunPipeline():
         # number of labeled anomalies
         self.nla_list = [0, 1, 5, 10, 25, 50, 75, 100]
         # seed list
-        self.seed_list = list(np.arange(num_seed) + 1)
+        self.seed_list = [i+1 for i in range(num_seed)]
 
         if self.noise_type is None:
             pass
@@ -80,7 +80,7 @@ class RunPipeline():
         # unsupervised algorithms
         if self.parallel == 'unsupervise':
             from adbench.baseline.PyOD import PYOD
-            from adbench.baseline.DAGMM.run import DAGMM
+            #from adbench.baseline.DAGMM.run import DAGMM
 
             # from pyod
             for _ in ['IForest', 'OCSVM', 'CBLOF', 'COF', 'COPOD', 'ECOD', 'FeatureBagging', 'HBOS', 'KNN', 'LODA',
@@ -88,7 +88,7 @@ class RunPipeline():
                 self.model_dict[_] = PYOD
 
             # DAGMM
-            self.model_dict['DAGMM'] = DAGMM
+            # self.model_dict['DAGMM'] = DAGMM
 
         # semi-supervised algorithms
         elif self.parallel == 'semi-supervise':
@@ -163,7 +163,8 @@ class RunPipeline():
                 dataset_list.append(dataset)
                 dataset_size.append(len(data['y_train']) + len(data['y_test']))
             else:
-                print(f"remove the dataset {dataset}")
+                pass
+                #print(f"remove the dataset {dataset}")
 
         # sort datasets by their sample size
         dataset_list = [dataset_list[_] for _ in np.argsort(np.array(dataset_size))]
@@ -210,12 +211,12 @@ class RunPipeline():
             end_time = time.time(); time_inference = end_time - start_time
 
             # performance
-            print(self.data['y_test'].shape)
-            print(score_test.shape)
+            #print(self.data['y_test'].shape)
+            #print(score_test.shape)
             result = self.utils.metric(y_true=self.data['y_test'], y_score=score_test, pos_label=1)
 
             K.clear_session()
-            print(f"Model: {self.model_name}, AUC-ROC: {result['aucroc']}, AUC-PR: {result['aucpr']}")
+            #print(f"Model: {self.model_name}, AUC-ROC: {result['aucroc']}, AUC-PR: {result['aucpr']}")
 
             del self.clf
             gc.collect()
@@ -251,10 +252,10 @@ class RunPipeline():
             else:
                 experiment_params = list(product(dataset_list, self.rla_list, self.seed_list))
 
-        print(f'{len(dataset_list)} datasets, {len(self.model_dict.keys())} models')
+        #print(f'{len(dataset_list)} datasets, {len(self.model_dict.keys())} models')
 
         # save the results
-        print(f"Experiment results are saved at: {os.path.join(os.path.dirname(os.path.abspath(__file__)), 'result')}")
+        #print(f"Experiment results are saved at: {os.path.join(os.path.dirname(os.path.abspath(__file__)), 'result')}")
         os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'result'), exist_ok=True)
         columns = list(self.model_dict.keys()) if clf is None else ['Customized']
         df_AUCROC = pd.DataFrame(data=None, index=experiment_params, columns=columns)
@@ -311,8 +312,8 @@ class RunPipeline():
                     # fit and test model
                     time_fit, time_inference, metrics = self.model_fit()
                     results.append([params, model_name, metrics, time_fit, time_inference])
-                    print(f'Current experiment parameters: {params}, model: {model_name}, metrics: {metrics}, '
-                          f'fitting time: {time_fit}, inference time: {time_inference}')
+                    #print(f'Current experiment parameters: {params}, model: {model_name}, metrics: {metrics}, '
+                    #      f'fitting time: {time_fit}, inference time: {time_inference}')
 
                     # store and save the result (AUC-ROC, AUC-PR and runtime / inference time)
                     df_AUCROC[model_name].iloc[i] = metrics['aucroc']

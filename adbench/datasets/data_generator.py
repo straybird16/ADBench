@@ -259,7 +259,7 @@ class DataGenerator():
 
         # if the dataset is too small, generating duplicate smaples up to n_samples_threshold
         if len(y) < self.n_samples_threshold and self.generate_duplicates:
-            print(f'generating duplicate samples for dataset {self.dataset}...')
+            #print(f'generating duplicate samples for dataset {self.dataset}...')
             self.utils.set_seed(self.seed)
             idx_duplicate = np.random.choice(np.arange(len(y)), self.n_samples_threshold, replace=True)
             X = X[idx_duplicate]
@@ -267,7 +267,7 @@ class DataGenerator():
 
         # if the dataset is too large, subsampling for considering the computational cost
         if len(y) > 10000:
-            print(f'subsampling for dataset {self.dataset}...')
+            #print(f'subsampling for dataset {self.dataset}...')
             self.utils.set_seed(self.seed)
             idx_sample = np.random.choice(np.arange(len(y)), 10000, replace=False)
             X = X[idx_sample]
@@ -287,7 +287,7 @@ class DataGenerator():
                     X = data_dependency['X']; y = data_dependency['y']
                 except:
                     # raise NotImplementedError
-                    print(f'Generating dependency anomalies...')
+                    #print(f'Generating dependency anomalies...')
                     X, y = self.generate_realistic_synthetic(X, y,
                                                              realistic_synthetic_mode=realistic_synthetic_mode,
                                                              alpha=alpha, percentage=percentage)
@@ -316,7 +316,7 @@ class DataGenerator():
         else:
             raise NotImplementedError
 
-        print(f'current noise type: {noise_type}')
+        #print(f'current noise type: {noise_type}')
 
         # show the statistic
         self.utils.data_description(X=X, y=y)
