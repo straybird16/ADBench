@@ -41,7 +41,7 @@ class ae(nn.Module):
         encoding_input_dim = num_feature
         # check if layer config is specified
         if not layer_config:
-            self.layer_config = [[128, hidden_dim, latent_dim], [latent_dim, hidden_dim, 128]]
+            #self.layer_config = [[128, hidden_dim, latent_dim], [latent_dim, hidden_dim, 128]]
             self.layer_config = [[128, 128, 32, 32, hidden_dim, latent_dim], [latent_dim, hidden_dim, 32, 32, 128, 128]]
         else:
             self.layer_config = layer_config

@@ -7,7 +7,7 @@ from adbench.baseline.SimpleAE.model import ae
 
 class vae(ae):
 
-    def __init__(self, num_feature, output_feature=0, contamination:float=0.01, latent_dim=4, hidden_dim=8, activation='leaky_relu', initialization='xavier_normal', sigma:float=1e-1, layer_config=None, preprocess:bool=True) -> None:
+    def __init__(self, num_feature, output_feature=0, contamination:float=0.01, latent_dim=4, hidden_dim=8, activation='leaky_relu', initialization='xavier_normal', sigma:float=1e-0, layer_config=None, preprocess:bool=True) -> None:
         super().__init__(num_feature=num_feature, output_feature=output_feature, contamination=contamination, latent_dim=latent_dim, hidden_dim=hidden_dim, activation=activation, initialization=initialization,layer_config=layer_config,preprocess=preprocess)
         self.name = 'VAE' # name
         # VAE specific components
@@ -52,32 +52,37 @@ class vae(ae):
                 
             loss /= l
             # print training process for each 100 epochs
-            if (epoch + 1)%1000 == 0:
+            if (epoch + 1)%1000 == 0  or epoch == 0:
                 print("epoch : {}/{}, loss = {:.6f}".format(epoch + 1, epochs, loss))
         
-        """ temp = torch.tensor(X_train).to(torch.float32)
-        train_loss = torch.sum((self(temp)-temp)**2, dim=1).detach().numpy()
-        self.decision_scores_ = train_loss.ravel()
-        self._process_decision_scores() """
+        # compute the mean and standard deviation of tarining samples
+        X = torch.tensor(X_train, dtype=torch.float32)
+        error = torch.sum((self.forward(X) - X)**2, dim=-1).detach().numpy()
+        self.error_mu_, self.error_std_ = error.mean(), error.std()
+        self.KLD_mu_, self.KLD_sigma_ = self.KLD.detach().numpy(), self.row_wise_KLD.std().detach().numpy()
         return self
     
     def predict_proba(self, X):
-        X = torch.tensor(X, dtype=torch.float32)
-        prediction = torch.sum((self.forward(X) - X)**2, dim=-1)   #  reconstruction error
-        prediction = prediction.detach().numpy()
-        prediction = prediction.reshape(-1, 1)/prediction.max() #  linearly convert to probabilities of being positive (anomaly)
+        #X = torch.tensor(X, dtype=torch.float32)
+        #prediction = torch.sum((self.forward(X) - X)**2, dim=-1)   #  reconstruction error
+        prediction = self.decision_function(X)   #  reconstruction error
+        prediction = prediction / prediction.max() #  linearly convert to probabilities of being positive (anomaly)
         return np.concatenate((1-prediction, prediction), axis=-1)
         
     def decision_function(self, X):
         X = torch.tensor(X, dtype=torch.float32)
         reconstruction_error = torch.sum((self.forward(X) - X)**2, dim=-1)
-        return reconstruction_error.detach().numpy().reshape(-1, 1)   #  reconstruction error
+        score = reconstruction_error.detach().numpy()
+        score = (score - self.error_mu_) / self.error_std_ * (self.row_wise_KLD.detach().numpy() - self.KLD_mu_) / self.KLD_sigma_
+        print("self.error_mu={}, self.error_std={}, self.KLD_mu={}, self.KLD_sigma={}".format(self.error_mu_, self.error_std_, self.KLD_mu_, self.KLD_sigma_))
+        return score.reshape(-1, 1)   #  reconstruction error
     
     def reparameterize(self, mu, var):
         std = torch.sqrt(var)
         eps = torch.randn_like(std)
         sample = mu + (eps*std)
-        self.KLD = -0.5*torch.mean(1 + torch.log(var) - mu**2 - var)
+        self.row_wise_KLD = torch.mean(-0.5*(1 + torch.log(var) - mu**2 - var), dim=-1)
+        self.KLD = self.row_wise_KLD.mean()
         self.error=self.sigma * self.KLD
         return sample
     

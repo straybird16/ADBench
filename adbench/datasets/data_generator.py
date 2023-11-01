@@ -4,7 +4,7 @@ import random
 import os
 from math import ceil
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from itertools import combinations
 from sklearn.mixture import GaussianMixture
 
@@ -336,6 +336,7 @@ class DataGenerator():
         # minmax scaling
         if minmax:
             scaler = MinMaxScaler().fit(X_train)
+            #scaler = StandardScaler().fit(X_train)
             X_train = scaler.transform(X_train)
             X_test = scaler.transform(X_test)
 
@@ -369,6 +370,8 @@ class DataGenerator():
         # the label of unlabeled data is 0, and that of labeled anomalies is 1
         y_train[idx_unlabeled] = 0
         y_train[idx_labeled_anomaly] = 1
+        # remove unlabeled anomaly for semi-supervision
+        #X_train, y_train = X_train[idx_normal], y_train[idx_normal]
 
         #print("generator function: X_trian shape :{} y_train shape :{} X_test shape :{} y_test shape :{}".format(X_train.shape, y_train.shape, X_test.shape, y_test.shape))
         return {'X_train':X_train, 'y_train':y_train, 'X_test':X_test, 'y_test':y_test}

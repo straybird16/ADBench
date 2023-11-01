@@ -15,19 +15,19 @@ class VAE():
         self.utils = Utils()
         self.model_name = model_name
 
-    def fit(self, X_train, y_train, preprocess:bool=True):
+    def fit(self, X_train, y_train, preprocess:bool=False):
         self.preprocessor = preprocessor(normalization_scheme=None) if preprocess else None
         # Preprocess data
         if preprocess:
             X_train = self.preprocessor.fit_transform(X_train)
         # Initialization
-        latent_dim = min(max(math.ceil(math.log2(X_train.shape[0])), 8), X_train.shape[-1]//2)
-        self.model = vae(num_feature=X_train.shape[-1], latent_dim=latent_dim)
-        #self.model = ae(num_feature=X_train.shape[-1], latent_dim=X_train.shape[-1]//2)
-        #self.model = ae(num_feature=X_train.shape[-1], latent_dim=math.ceil(math.log2(X_train.shape[0])))
+        #latent_dim = min(max(math.ceil(math.log2(X_train.shape[0])), 8), X_train.shape[-1]//2)
+        latent_dim = min(16, X_train.shape[-1]//2)
+        layer_config = [[128, 128, latent_dim], [latent_dim, 32, 32, 32, 32]]
+        self.model = vae(num_feature=X_train.shape[-1], latent_dim=latent_dim, layer_config=layer_config, sigma=1e-0)
 
         # fitting
-        self.model = fit(X_train=X_train, y_train=y_train, model=self.model)
+        self.model = self.model.fit(X_train=X_train, y_train=y_train, epochs=6000, lr=1e-4, wd=0e-6)
 
         return self
 
