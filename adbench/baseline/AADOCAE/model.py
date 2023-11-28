@@ -53,9 +53,8 @@ class aadocae(ae):
             #nn.Linear(encoding_dim, 1),
             nn.Linear(encoding_dim, 1),
         )
-        
-        # mini-batch size
-        batch_size = math.ceil(X_train.shape[0]/2)
+        l = X_train.shape[0]
+        batch_size_list = [l//2, l]
         grad_limit = 1e4
         
         #params_to_optimize = list(self.parameters())+list(self.query_projectors.parameters())+list(self.key_projectors.parameters())+list(self.value_projectors.parameters())+list(self.transformer_FCL.parameters())
@@ -69,8 +68,10 @@ class aadocae(ae):
         
         for epoch in range(epochs):
             self.train()
-            loss, l = 0, X_train.shape[0]    
+            loss= 0   
             permutation = np.random.permutation(l)
+            # mini-batch size
+            batch_size = math.ceil(l/((np.random.rand()+1)))
             for i in range(0, l, batch_size):
                 train_loss = 0
                 batch_idc = permutation[i:i+batch_size]
