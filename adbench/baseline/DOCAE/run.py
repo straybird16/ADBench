@@ -29,15 +29,16 @@ class DOCAE():
         latent_dim = min(max(math.ceil(math.log2(X_train.shape[0])), 8), X_train.shape[-1]//2)
         latent_dim = min(16, X_train.shape[-1]//2)
         layer_config = [[512, 512, latent_dim], [latent_dim, 64, 64, 64, 64]]
+        layer_config = [[128, 128, 128, 128, latent_dim], [latent_dim, 128, 128, 128, 128]]
         
         with torch.device(self.device):
             # hyper-parameters
-            wd=0e-2
-            alpha=1e-3
+            wd=0e-6
+            alpha=1e-0
             self.model = docae(num_feature=X_train.shape[-1], latent_dim=latent_dim, layer_config=layer_config, alpha=alpha)
             # fitting
             self.model = self.model.fit(X_train=X_train, y_train=y_train, epochs=int(1e4), lr=1e-4, wd=wd)
-            print("Weight Decay = {:.6f}".format(wd))
+            print("Latent dim= {}. Weight Decay = {:.6f}".format(latent_dim, wd))
         return self
 
     def predict_score(self, X):

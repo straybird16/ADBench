@@ -183,7 +183,7 @@ class RunPipeline():
             return any([_ in dataset for _ in NLPCV_list])
 
     # model fitting function
-    def model_fit(self):
+    def model_fit(self, dataset_name='no_dataset_name'):
         try:
             # model initialization, if model weights are saved, the save_suffix should be specified
             if self.model_name in ['DevNet', 'FEAWAD', 'REPEN']:
@@ -199,6 +199,7 @@ class RunPipeline():
             # fitting
             start_time = time.time()
             self.clf = self.clf.fit(X_train=self.data['X_train'], y_train=self.data['y_train'])
+            #print(self.data['y_train'])
             #self.clf = self.clf.fit(self.data['X_train'], self.data['y_train'])
             end_time = time.time(); time_fit = end_time - start_time
 
@@ -211,14 +212,15 @@ class RunPipeline():
             end_time = time.time(); time_inference = end_time - start_time
 
             # performance
-            #print(self.data['y_test'].shape)
-            #print(score_test.shape)
             result = self.utils.metric(y_true=self.data['y_test'], y_score=score_test, pos_label=1)
-
+            if self.clf.model.name[-2:] == 'AE' and hasattr(self.clf, 'evaluate_model'):
+                pass
+                #self.clf.evaluate_model(self.data['X_test'], self.data['y_test'])
+                #self.clf.model.visualize_with_tsne(self.data['y_test'], title=dataset_name)
             K.clear_session()
             #print(f"Model: {self.model_name}, AUC-ROC: {result['aucroc']}, AUC-PR: {result['aucpr']}")
 
-            del self.clf
+            #del self.clf
             gc.collect()
 
         except NotImplementedError as error:
@@ -258,8 +260,14 @@ class RunPipeline():
         #print(f"Experiment results are saved at: {os.path.join(os.path.dirname(os.path.abspath(__file__)), 'result')}")
         os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'result'), exist_ok=True)
         columns = list(self.model_dict.keys()) if clf is None else ['Customized']
-        df_AUCROC = pd.DataFrame(data=None, index=experiment_params, columns=columns)
-        df_AUCPR = pd.DataFrame(data=None, index=experiment_params, columns=columns)
+        self.clf = clf() if clf else None
+        if self.clf.model_name[-2:] == 'AE':
+                extra_columns = ['Reconstruction', 'Deviation', 'Sum of square', 'Max']
+                df_AUCROC = pd.DataFrame(data=None, index=experiment_params, columns=columns+extra_columns)
+                df_AUCPR = pd.DataFrame(data=None, index=experiment_params, columns=columns+extra_columns)
+        else:
+            df_AUCROC = pd.DataFrame(data=None, index=experiment_params, columns=columns)
+            df_AUCPR = pd.DataFrame(data=None, index=experiment_params, columns=columns)
         df_time_fit = pd.DataFrame(data=None, index=experiment_params, columns=columns)
         df_time_inference = pd.DataFrame(data=None, index=experiment_params, columns=columns)
 
@@ -333,12 +341,19 @@ class RunPipeline():
             else:
                 self.clf = clf; self.model_name = 'Customized'
                 # fit and test model
-                time_fit, time_inference, metrics = self.model_fit()
+                time_fit, time_inference, metrics = self.model_fit(dataset_name=dataset)
                 results.append([params, self.model_name, metrics, time_fit, time_inference])
                 print(f'Current experiment parameters: {params}, model: {self.model_name}, metrics: {metrics}, '
                       f'fitting time: {time_fit}, inference time: {time_inference}')
 
                 # store and save the result (AUC-ROC, AUC-PR and runtime / inference time)
+                if self.clf.model.name[-2:] == 'AE' and hasattr(self.clf, 'evaluate_model'):
+                    extra_results = self.clf.evaluate_model(self.data['X_test'], self.data['y_test'])
+                    df_AUCROC['Reconstruction'].iloc[i], df_AUCPR['Reconstruction'].iloc[i] = extra_results['rec_aucroc'], extra_results['rec_aucpr']
+                    df_AUCROC['Deviation'].iloc[i], df_AUCPR['Deviation'].iloc[i] = extra_results['dev_aucroc'], extra_results['dev_aucpr']
+                    df_AUCROC['Sum of square'].iloc[i], df_AUCPR['Sum of square'].iloc[i] = extra_results['ss_aucroc'], extra_results['ss_aucpr']
+                    df_AUCROC['Max'].iloc[i], df_AUCPR['Max'].iloc[i] = extra_results['max_aucroc'], extra_results['max_aucpr']
+                    
                 df_AUCROC[self.model_name].iloc[i] = metrics['aucroc']
                 df_AUCPR[self.model_name].iloc[i] = metrics['aucpr']
                 df_time_fit[self.model_name].iloc[i] = time_fit

@@ -8,7 +8,7 @@ from torchsummary import summary
 
 class docae(ae):
 
-    def __init__(self, num_feature, output_feature=0, contamination:float=0.05, center:float=0, R:float=1, alpha:float=1e-3, latent_dim=4, hidden_dim=8, activation='leaky_relu', initialization='xavier_normal', layer_config=None, preprocess:bool=True) -> None:
+    def __init__(self, num_feature, output_feature=0, contamination:float=0.05, center:float=0, R:float=1, alpha:float=1e-0, latent_dim=4, hidden_dim=8, activation='leaky_relu', initialization='xavier_normal', layer_config=None, preprocess:bool=True) -> None:
         super().__init__(num_feature=num_feature, output_feature=output_feature, contamination=contamination, latent_dim=latent_dim, hidden_dim=hidden_dim, activation=activation, initialization=initialization,layer_config=layer_config,preprocess=preprocess)
         self.name = 'DOCAE' # name
         # DOCAE specific components
@@ -93,7 +93,8 @@ class docae(ae):
         else:
             score = (score - self.error_mu_) / self.error_std_ # normalize
             normalized_latent_error = (self.instance_wise_error - self.latent_error_mu_) / self.latent_error_sigma_
-        score =  torch.maximum(score, normalized_latent_error)
+        #score =  torch.maximum(score, normalized_latent_error)
+        score += normalized_latent_error
         print("self.error_mu={:.4f}, self.error_std={:.4f}, self.latent_error_mu_={:.4f}, self.latent_error_sigma_={:.4f}; alpha = {:.4f}".format(self.error_mu_, self.error_std_, self.latent_error_mu_, self.latent_error_sigma_, self.alpha))
         return score.reshape(-1, 1)   #  reconstruction error
     
