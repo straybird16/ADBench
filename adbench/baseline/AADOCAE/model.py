@@ -11,11 +11,11 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 class aadocae(ae):
     def init_projectors(self, projectors:nn.ModuleList, num_feature:int, num_latent_dim:int)->nn.ModuleList:
         for sequence in projectors:
-            sequence.append(nn.Linear(num_feature, num_feature))
-            sequence.append(nn.LeakyReLU(0.1))
-            sequence.append(nn.Linear(num_feature, num_feature))
-            sequence.append(nn.LeakyReLU(0.1))
             sequence.append(nn.Linear(num_feature, num_latent_dim))
+            sequence.append(nn.LeakyReLU(0.1))
+            sequence.append(nn.Linear(num_latent_dim, num_latent_dim))
+            sequence.append(nn.LeakyReLU(0.1))
+            sequence.append(nn.Linear(num_latent_dim, num_latent_dim))
         return projectors
     
     def __init__(self, num_feature, output_feature=0, contamination:float=0.05, center:float=0, R:float=1, alpha:float=1e-0, latent_dim=4, hidden_dim=8, activation='leaky_relu', initialization='xavier_normal', layer_config=None, preprocess:bool=True) -> None:
@@ -33,7 +33,7 @@ class aadocae(ae):
         
         # transformer sub-structure
         self.use_attention = True
-        self.num_attention_heads = 4
+        self.num_attention_heads = 8
         self.attention_head_weights = nn.Parameter(torch.rand(self.num_attention_heads), requires_grad=True)
         self.query_projectors = nn.ModuleList([nn.Sequential() for _ in range(self.num_attention_heads)])
         self.key_projectors = nn.ModuleList([nn.Sequential() for _ in range(self.num_attention_heads)])
@@ -42,11 +42,15 @@ class aadocae(ae):
         
     def fit(self, X_train, y_train, epochs:int=6000, lr=1e-4, wd=0e-6):
         # initialize transformer components
-        num_feature, num_latent_dim_transformer = X_train.shape[-1], 4
-        self.init_projectors(self.query_projectors, num_feature, num_latent_dim_transformer)
-        self.init_projectors(self.key_projectors, num_feature, num_latent_dim_transformer)
-        self.init_projectors(self.value_projectors, num_feature, num_latent_dim_transformer)
-        encoding_dim = self.num_attention_heads*num_latent_dim_transformer + num_feature + self.latent_dim
+        num_feature, d_model = X_train.shape[-1], 512
+        d_k, d_v = 64, 64
+        self.init_projectors(self.query_projectors, num_feature, d_model)
+        self.init_projectors(self.key_projectors, num_feature, d_model)
+        self.init_projectors(self.value_projectors, num_feature, d_model)
+        self.W_Q = nn.ModuleList([nn.Linear(d_model, d_k, bias=False) for _ in range(self.num_attention_heads)])
+        self.W_K = nn.ModuleList([nn.Linear(d_model, d_k, bias=False) for _ in range(self.num_attention_heads)])
+        self.W_V = nn.ModuleList([nn.Linear(d_model, d_v, bias=False) for _ in range(self.num_attention_heads)])
+        encoding_dim = self.num_attention_heads*d_v + num_feature + self.latent_dim
         self.transformer_FCL = nn.Sequential(
             nn.Linear(encoding_dim, encoding_dim),
             nn.LeakyReLU(0.1),
@@ -90,7 +94,7 @@ class aadocae(ae):
                 selector_loss, selector_idc, selector_weights = None, None, None
                 #selector_loss, selector_idc = self.determinant_selector(batch_X, num_samples=num_samples)
                 if self.use_attention:
-                    selector_loss, selector_idc, selector_weights = self.transformer_selector(batch_X)
+                    selector_loss, selector_idc, selector_weights = self._transformer_selector(batch_X)
                 if self.error:
                     #train_loss += self.error
                     #train_loss += torch.mean(self.instance_wise_error[selector_idc])
@@ -114,9 +118,9 @@ class aadocae(ae):
             if (epoch + 1)%1000 == 0 or epoch == 0:
                 print("epoch : {}/{}, loss = {:.6f}".format(epoch + 1, epochs, loss))
                 #print(selector_weights[:10])
-                with torch.no_grad():
+                """ with torch.no_grad():
                     rec_loss = criterion(self.forward(X_train), X_train)/l
-                    _, _, w = self.transformer_selector(X_train)
+                    _, _, w = self._transformer_selector_mp(X_train) """
                 #print("Predicted anomaly ratio: {:.4f}; embeddings mean: {:.4f}, dev: {:.4f}; dev loss: {:.4f}, rec loss: {:.4f}".format((w<0).sum()/l, (self.codes**2).mean(), (self.codes**2).std(), self.error, rec_loss))
 
         # compute the mean and standard deviation of tarining samples
@@ -152,17 +156,43 @@ class aadocae(ae):
                 #complement_cov_matrix = torch.cov(self.encoding_layer(complement_set).t())
                 #complement_det = torch.linalg.det(complement_cov_matrix)  # and we wish to minimize this determinant and maximize the determinant of the covariance matrix of the rest of the data
         return minimum_determinant, minimum_idc, None
-      
+    
     # a transformer selector function to select the least anomalous data samples based on the encodings of them
-    def transformer_selector(self, X):
+    def _transformer_selector(self, X):
+            Q = self.query_projectors[0](X)
+            K = self.key_projectors[0](X)
+            V = self.value_projectors[0](X)
+            dim_q = Q[0].shape[-1]
+            encodings, projections = [], []
+            normalized_head_weights = nn.Softmax(dim=0)(self.attention_head_weights)
+            for i in range(self.num_attention_heads):
+                q, k, v = self.W_Q[i](Q), self.W_K[i](K), self.W_V[i](V)
+                encodings.append(torch.linalg.multi_dot((q, k.t(), v)) * normalized_head_weights[i])
+            encodings.append(X)
+            encodings.append(self.codes) # embeddings of X
+            X = self.transformer_FCL(torch.concat(encodings, dim=-1))
+            
+            #X = nn.Softmax(dim=0)(X) * X.shape[0]
+            #X = nn.Softmax(dim=-1)(X)
+            X = X * X.shape[0] / X.sum(dim=0)
+            # the error lower than the set threshold 
+            
+            #X = nn.Sigmoid()(X)
+            idc = None
+            #idc = torch.where(X > X.quantile(0.2, dim=0, interpolation='midpoint'))[0]
+            return None, idc, X
+    
+    # a transformer selector function to select the least anomalous data samples based on the encodings of them
+    def _transformer_selector_mp(self, X):
             Q_heads = [projection(X) for projection in self.query_projectors]
             K_heads = [projection(X) for projection in self.key_projectors]
             V_heads = [projection(X) for projection in self.value_projectors]
             dim_q = Q_heads[0].shape[-1]
             encodings = []
+            normalized_head_weights = nn.Softmax(dim=0)(self.attention_head_weights)
             for i in range(self.num_attention_heads):
                 q, k, v = Q_heads[i], K_heads[i], V_heads[i]
-                encodings.append(torch.linalg.multi_dot((q, k.t(), v)) * self.attention_head_weights[i])
+                encodings.append(torch.linalg.multi_dot((q, k.t(), v)) * normalized_head_weights[i])
             encodings.append(X)
             encodings.append(self.codes) # embeddings of X
             X = self.transformer_FCL(torch.concat(encodings, dim=-1))
@@ -177,11 +207,11 @@ class aadocae(ae):
             #idc = torch.where(X > X.quantile(0.2, dim=0, interpolation='midpoint'))[0]
             return None, idc, X
         
-    def predict_proba(self, X):
+    """ def predict_proba(self, X):
         X = torch.tensor(X, dtype=torch.float32)
         prediction = self.decision_function(X)
         prediction = prediction / prediction.max() #  linearly convert to probabilities of being positive (anomalous)
-        return np.concatenate((1-prediction, prediction), axis=-1)
+        return np.concatenate((1-prediction, prediction), axis=-1) """
         
     def decision_function(self, X):
         #X = torch.tensor(X, dtype=torch.float32)
@@ -264,7 +294,7 @@ class aadocae(ae):
         rec_score = ((self.forward(X) - X)**2).sum(dim=-1).cpu().detach().numpy()
         dev_score = self.instance_wise_error.cpu().detach().numpy()
         if self.use_attention:
-            _, _, transformer_score = self.transformer_selector(X)
+            _, _, transformer_score = self._transformer_selector(X)
             transformer_score = transformer_score.sum(dim=-1).cpu().detach().numpy()
         
         rec_aucroc, rec_aucpr = roc_auc_score(y_true=y, y_score=rec_score), average_precision_score(y_true=y, y_score=rec_score, pos_label=1)

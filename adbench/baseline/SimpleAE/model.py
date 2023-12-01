@@ -32,12 +32,8 @@ class ae(nn.Module):
         self.hd = hidden_dim
         self.contamination, self.preprocess = contamination, preprocess
         self.error = None # extra error terms, if applicable
-        """ self.transformerAttention = False
+        self.robust_scaling = True
 
-        if self.transformerAttention:
-            encoding_input_dim = self.valueDim
-        else:
-            encoding_input_dim = num_feature """
         encoding_input_dim = num_feature
         # check if layer config is specified
         if not layer_config:
@@ -75,13 +71,16 @@ class ae(nn.Module):
             
     def fit(self, X_train, y_train, epochs:int=8000, lr=1e-4, wd=0e-6):
         
-        batch_size = math.ceil(X_train.shape[0]/10)
-        grad_limit = 1e3
+        batch_size = math.ceil(X_train.shape[0]/2)
+        grad_limit = 1e4
         
-        optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=wd)
+        #optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=wd)
+        #optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=wd)
+        optimizer = torch.optim.NAdam(self.parameters(), lr=lr, weight_decay=wd)
         criterion = nn.MSELoss(reduction='sum')
         
         for epoch in range(epochs):
+            self.train()
             loss, l = 0, X_train.shape[0]
             permutation = np.random.permutation(l)
             for i in range(0, l, batch_size):
@@ -104,29 +103,41 @@ class ae(nn.Module):
                 torch.nn.utils.clip_grad_norm_(self.parameters(), grad_limit)
                 # perform parameter update based on current gradients
                 optimizer.step()
+                optimizer.zero_grad()
                 
             loss /= l
             # print training process for each 100 epochs
-            if (epoch + 1)%1000 == 0:
+            if (epoch + 1)%1000 == 0 or epoch == 0:
                 print("epoch : {}/{}, loss = {:.6f}".format(epoch + 1, epochs, loss))
         
-        """ temp = torch.tensor(X_train).to(torch.float32)
-        train_loss = torch.sum((self(temp)-temp)**2, dim=1).detach().numpy()
-        self.decision_scores_ = train_loss.ravel()
-        self._process_decision_scores() """
+        # compute the mean and standard deviation of tarining samples
+        #X = torch.tensor(X_train, dtype=torch.float32)
+        X = X_train
+        self.eval()
+        error = torch.sum((self.forward(X) - X)**2, dim=-1)#.detach().numpy()
+        self.error_mu_, self.error_std_ = error.mean(), error.std()
+        self.error_median_, self.error_range_ = error.quantile(q=0.5), error.quantile(q=0.8) - error.quantile(q=0.2)
+        print("self.error_median={:.4f}, self.error_range={:.4f}".format(self.error_median_, self.error_range_))
+        print("Model result scaling scheme: ", self.robust_scaling)
         return self
     
     def predict_proba(self, X):
-        X = torch.tensor(X, dtype=torch.float32)
-        prediction = torch.sum((self.forward(X) - X)**2, dim=-1)   #  reconstruction error
-        prediction = prediction.detach().numpy()
-        prediction = prediction.reshape(-1, 1)/prediction.max() #  linearly convert to probabilities of being positive (anomaly)
-        return np.concatenate((1-prediction, prediction), axis=-1)
+        
+        prediction = self.decision_function(X)
+        proba = prediction / prediction.max() #  linearly convert to probabilities of being positive (anomalous)
+        return np.concatenate((1-proba, proba), axis=-1)
         
     def decision_function(self, X):
-        X = torch.tensor(X, dtype=torch.float32)
+        
         reconstruction_error = torch.sum((self.forward(X) - X)**2, dim=-1)
-        return reconstruction_error.detach().numpy().reshape(-1, 1)   #  reconstruction error
+        score = reconstruction_error#.detach().numpy()
+        # normalize errors
+        if self.robust_scaling:
+            score = (score - self.error_median_) / self.error_range_
+        else:
+            score = (score - self.error_mu_) / self.error_std_ # normalize           
+        print("self.error_mu={:.4f}, self.error_std={:.4f}".format(self.error_mu_, self.error_std_))
+        return score.cpu().detach().numpy().reshape(-1, 1)   #  reconstruction error
     
     def forward(self, X):
         return self.decoding_layer(self.encoding_layer(X))

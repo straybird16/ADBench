@@ -261,7 +261,7 @@ class RunPipeline():
         os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'result'), exist_ok=True)
         columns = list(self.model_dict.keys()) if clf is None else ['Customized']
         self.clf = clf() if clf else None
-        if self.clf.model_name[-2:] == 'AE':
+        if self.clf.model_name[-2:] == 'AE' and hasattr(self.clf, 'evaluate_model'):
                 extra_columns = ['Reconstruction', 'Deviation', 'Sum of square', 'Max']
                 df_AUCROC = pd.DataFrame(data=None, index=experiment_params, columns=columns+extra_columns)
                 df_AUCPR = pd.DataFrame(data=None, index=experiment_params, columns=columns+extra_columns)
