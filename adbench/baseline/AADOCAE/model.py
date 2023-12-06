@@ -50,7 +50,7 @@ class aadocae(ae):
         self.W_Q = nn.ModuleList([nn.Linear(d_model, d_k, bias=False) for _ in range(self.num_attention_heads)])
         self.W_K = nn.ModuleList([nn.Linear(d_model, d_k, bias=False) for _ in range(self.num_attention_heads)])
         self.W_V = nn.ModuleList([nn.Linear(d_model, d_v, bias=False) for _ in range(self.num_attention_heads)])
-        encoding_dim = self.num_attention_heads*d_v + num_feature + self.latent_dim
+        encoding_dim = self.num_attention_heads*d_v # + num_feature + self.latent_dim
         self.transformer_FCL = nn.Sequential(
             nn.Linear(encoding_dim, encoding_dim),
             nn.LeakyReLU(0.1),
@@ -63,7 +63,7 @@ class aadocae(ae):
         
         #params_to_optimize = list(self.parameters())+list(self.query_projectors.parameters())+list(self.key_projectors.parameters())+list(self.value_projectors.parameters())+list(self.transformer_FCL.parameters())
         optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=wd)
-        optimizer = torch.optim.NAdam(self.parameters(), lr=lr, weight_decay=wd)
+        #optimizer = torch.optim.NAdam(self.parameters(), lr=lr, weight_decay=wd)
         #optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=wd, nesterov=True, momentum=0.9)
         #optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=wd)
         
@@ -75,7 +75,8 @@ class aadocae(ae):
             loss= 0   
             permutation = np.random.permutation(l)
             # mini-batch size
-            batch_size = math.ceil(l/((np.random.rand()+1)))
+            #batch_size = math.ceil(l/((np.random.rand()+1)))
+            batch_size = math.ceil(l/2)
             for i in range(0, l, batch_size):
                 train_loss = 0
                 batch_idc = permutation[i:i+batch_size]
@@ -159,53 +160,59 @@ class aadocae(ae):
     
     # a transformer selector function to select the least anomalous data samples based on the encodings of them
     def _transformer_selector(self, X):
-            Q = self.query_projectors[0](X)
-            K = self.key_projectors[0](X)
-            V = self.value_projectors[0](X)
-            dim_q = Q[0].shape[-1]
-            encodings, projections = [], []
-            normalized_head_weights = nn.Softmax(dim=0)(self.attention_head_weights)
-            for i in range(self.num_attention_heads):
-                q, k, v = self.W_Q[i](Q), self.W_K[i](K), self.W_V[i](V)
-                encodings.append(torch.linalg.multi_dot((q, k.t(), v)) * normalized_head_weights[i])
-            encodings.append(X)
-            encodings.append(self.codes) # embeddings of X
-            X = self.transformer_FCL(torch.concat(encodings, dim=-1))
-            
-            #X = nn.Softmax(dim=0)(X) * X.shape[0]
-            #X = nn.Softmax(dim=-1)(X)
-            X = X * X.shape[0] / X.sum(dim=0)
-            # the error lower than the set threshold 
-            
-            #X = nn.Sigmoid()(X)
-            idc = None
-            #idc = torch.where(X > X.quantile(0.2, dim=0, interpolation='midpoint'))[0]
-            return None, idc, X
+        idc = None
+        Q = self.query_projectors[0](X)
+        K = self.key_projectors[0](X)
+        V = self.value_projectors[0](X)
+        dim_q = Q[0].shape[-1]
+        encodings = []
+        softmax = nn.Softmax(dim=0)
+        #normalized_head_weights = nn.Softmax(dim=0)(self.attention_head_weights)
+        for i in range(self.num_attention_heads):
+            q, k, v = self.W_Q[i](Q), self.W_K[i](K), self.W_V[i](V)
+            attention_weights = torch.matmul(q, k.t())/dim_q
+            attention_weights = softmax(attention_weights)
+            weighted_values = torch.matmul(attention_weights, v)
+            encodings.append(weighted_values)
+            #encodings.append(torch.linalg.multi_dot((q, k.t(), v)) * normalized_head_weights[i])
+        #encodings.append(X)
+        #encodings.append(self.codes) # embeddings of X
+        X = self.transformer_FCL(torch.concat(encodings, dim=-1))
+        
+        X = softmax(X / (X.shape[0]**0.5)) * X.shape[0]
+        #X = nn.Softmax(dim=-1)(X)
+        #X = X * X.shape[0] / X.sum(dim=0)
+        # the error lower than the set threshold 
+        
+        #X = nn.Sigmoid()(X)
+        
+        #idc = torch.where(X > X.quantile(0.2, dim=0, interpolation='midpoint'))[0]
+        return None, idc, X
     
     # a transformer selector function to select the least anomalous data samples based on the encodings of them
     def _transformer_selector_mp(self, X):
-            Q_heads = [projection(X) for projection in self.query_projectors]
-            K_heads = [projection(X) for projection in self.key_projectors]
-            V_heads = [projection(X) for projection in self.value_projectors]
-            dim_q = Q_heads[0].shape[-1]
-            encodings = []
-            normalized_head_weights = nn.Softmax(dim=0)(self.attention_head_weights)
-            for i in range(self.num_attention_heads):
-                q, k, v = Q_heads[i], K_heads[i], V_heads[i]
-                encodings.append(torch.linalg.multi_dot((q, k.t(), v)) * normalized_head_weights[i])
-            encodings.append(X)
-            encodings.append(self.codes) # embeddings of X
-            X = self.transformer_FCL(torch.concat(encodings, dim=-1))
-            
-            #X = nn.Softmax(dim=0)(X) * X.shape[0]
-            #X = nn.Softmax(dim=-1)(X)
-            X = X * X.shape[0] / X.sum(dim=0)
-            # the error lower than the set threshold 
-            
-            #X = nn.Sigmoid()(X)
-            idc = None
-            #idc = torch.where(X > X.quantile(0.2, dim=0, interpolation='midpoint'))[0]
-            return None, idc, X
+        Q_heads = [projection(X) for projection in self.query_projectors]
+        K_heads = [projection(X) for projection in self.key_projectors]
+        V_heads = [projection(X) for projection in self.value_projectors]
+        dim_q = Q_heads[0].shape[-1]
+        encodings = []
+        normalized_head_weights = nn.Softmax(dim=0)(self.attention_head_weights)
+        for i in range(self.num_attention_heads):
+            q, k, v = Q_heads[i], K_heads[i], V_heads[i]
+            encodings.append(torch.linalg.multi_dot((q, k.t(), v)) * normalized_head_weights[i])
+        encodings.append(X)
+        encodings.append(self.codes) # embeddings of X
+        X = self.transformer_FCL(torch.concat(encodings, dim=-1))
+        
+        #X = nn.Softmax(dim=0)(X) * X.shape[0]
+        #X = nn.Softmax(dim=-1)(X)
+        X = X * X.shape[0] / X.sum(dim=0)
+        # the error lower than the set threshold 
+        
+        #X = nn.Sigmoid()(X)
+        idc = None
+        #idc = torch.where(X > X.quantile(0.2, dim=0, interpolation='midpoint'))[0]
+        return None, idc, X
         
     """ def predict_proba(self, X):
         X = torch.tensor(X, dtype=torch.float32)

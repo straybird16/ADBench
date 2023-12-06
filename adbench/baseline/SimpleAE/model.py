@@ -23,11 +23,44 @@ class ae(nn.Module):
             raise NotImplementedError("Initialization not defined: '{}'".format(self.initialization))
         if module.bias is not None:
             module.bias.data.zero_()
+            
+    def _init_layers(self, layer_config, normalization:str=None):
+        encoding_input_dim, activation = self.num_feature, self.activation
+        e_config, d_config = [encoding_input_dim] + layer_config[0], layer_config[1] + [self.output_feature]
+        e_layers = [nn.Linear(e_config[i], e_config[i+1]) for i, _ in enumerate(e_config[:-1])]
+        d_layers = [nn.Linear(d_config[i], d_config[i+1]) for i, _ in enumerate(d_config[:-1])]
+        e_activation, d_activation = [nn.LeakyReLU(0.1) for _ in range(len(e_layers) - 1)], [nn.LeakyReLU(0.1) for _ in range(len(d_layers) - 1)]
+        if activation == 'leaky_relu':
+            e_activation, d_activation = [nn.LeakyReLU(0.1) for _ in range(len(e_layers) - 1)], [nn.LeakyReLU(0.1) for _ in range(len(d_layers) - 1)]
+        elif activation == 'tanh':
+            e_activation, d_activation = [nn.Tanh() for _ in range(len(e_layers) - 1)], [nn.Tanh() for _ in range(len(d_layers) - 1)]
+        elif activation == 'sigmoid':
+            e_activation, d_activation = [nn.Sigmoid() for _ in range(len(e_layers) - 1)], [nn.Sigmoid() for _ in range(len(d_layers) - 1)]
+            
+        # initialize encoder and decoder
+        self.norm_layer = normalization
+        print('ANN normalization layer: ', self.norm_layer)
+        if self.norm_layer:
+            # normalization layer
+            #e_norm, d_norm = [nn.LayerNorm(n) for n in layer_config[0][:-1]], [nn.LayerNorm(n) for n in layer_config[1][1:]]
+            e_norm, d_norm = [nn.BatchNorm1d(n) for n in layer_config[0][:-1]], [nn.BatchNorm1d(n) for n in layer_config[1][1:]]
+            e_structure, d_structure = (e_layers, e_activation, e_norm), (d_layers, d_activation, d_norm)
+        else:
+            e_structure, d_structure = (e_layers, e_activation), (d_layers, d_activation)
+            #e_structure, d_structure = e_layers, (d_layers, d_activation)
+        
+        self.encoding_layer = nn.Sequential(*list(itertools.chain(*itertools.zip_longest(*e_structure)))[:-len(e_structure)+1])
+        #self.encoding_layer = nn.Sequential(*list(e_structure))
+        self.decoding_layer = nn.Sequential(*list(itertools.chain(*itertools.zip_longest(*d_structure)))[:-len(d_structure)+1])
+        # initialize all weights
+        for layer in self.children():
+            self._init_weights(layer)
+        return
 
     def __init__(self, num_feature, output_feature=0, contamination:float=0.01, latent_dim=4, hidden_dim=8, activation='leaky_relu', initialization='xavier_normal', layer_config=None, preprocess:bool=True) -> None:
         super().__init__()
         self.name = 'AE' # name
-        self.num_feature, self.latent_dim, self.hidden_dim, self.initialization = num_feature, latent_dim, hidden_dim, initialization # arguments
+        self.num_feature, self.latent_dim, self.hidden_dim, self.initialization, self.activation = num_feature, latent_dim, hidden_dim, initialization, activation # arguments
         self.output_feature = num_feature if output_feature == 0 else output_feature
         self.hd = hidden_dim
         self.contamination, self.preprocess = contamination, preprocess
@@ -41,7 +74,9 @@ class ae(nn.Module):
             self.layer_config = [[128, 128, 32, 32, hidden_dim, latent_dim], [latent_dim, hidden_dim, 32, 32, 128, 128]]
         else:
             self.layer_config = layer_config
-        e_config, d_config = [encoding_input_dim] + self.layer_config[0], self.layer_config[1] + [self.output_feature]
+            
+        self._init_layers(layer_config=layer_config,normalization='BatchNorm1d')
+        """ e_config, d_config = [encoding_input_dim] + self.layer_config[0], self.layer_config[1] + [self.output_feature]
         e_layers = [nn.Linear(e_config[i], e_config[i+1]) for i, _ in enumerate(e_config[:-1])]
         d_layers = [nn.Linear(d_config[i], d_config[i+1]) for i, _ in enumerate(d_config[:-1])]
         e_activation, d_activation = [nn.LeakyReLU(0.1) for _ in range(len(e_layers) - 1)], [nn.LeakyReLU(0.1) for _ in range(len(d_layers) - 1)]
@@ -56,7 +91,8 @@ class ae(nn.Module):
         self.norm_layer = False
         if self.norm_layer:
             # normalization layer
-            e_norm, d_norm = [nn.LayerNorm(n) for n in self.layer_config[0][:-1]], [nn.LayerNorm(n) for n in self.layer_config[1][1:]]
+            #e_norm, d_norm = [nn.LayerNorm(n) for n in self.layer_config[0][:-1]], [nn.LayerNorm(n) for n in self.layer_config[1][1:]]
+            e_norm, d_norm = [nn.BatchNorm1d(n) for n in self.layer_config[0][:-1]], [nn.BatchNorm1d(n) for n in self.layer_config[1][1:]]
             e_structure, d_structure = (e_layers, e_activation, e_norm), (d_layers, d_activation, d_norm)
         else:
             e_structure, d_structure = (e_layers, e_activation), (d_layers, d_activation)
@@ -67,16 +103,16 @@ class ae(nn.Module):
         self.decoding_layer = nn.Sequential(*list(itertools.chain(*itertools.zip_longest(*d_structure)))[:-len(d_structure)+1])
         # initialize all weights
         for layer in self.children():
-            self._init_weights(layer)
+            self._init_weights(layer) """
             
     def fit(self, X_train, y_train, epochs:int=8000, lr=1e-4, wd=0e-6):
         
         batch_size = math.ceil(X_train.shape[0]/2)
         grad_limit = 1e4
         
-        #optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=wd)
+        optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=wd, nesterov=True, momentum=0.9)
         #optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=wd)
-        optimizer = torch.optim.NAdam(self.parameters(), lr=lr, weight_decay=wd)
+        #optimizer = torch.optim.NAdam(self.parameters(), lr=lr, weight_decay=wd)
         criterion = nn.MSELoss(reduction='sum')
         
         for epoch in range(epochs):
@@ -87,7 +123,7 @@ class ae(nn.Module):
                     
                 batch_idc = permutation[i:i+batch_size]
                 batch_X = X_train[batch_idc,]
-                batch_X = torch.tensor(batch_X, dtype=torch.float32)
+                #batch_X = torch.tensor(batch_X, dtype=torch.float32)
                 batch_Y = batch_X
                 
                 optimizer.zero_grad()
@@ -107,7 +143,7 @@ class ae(nn.Module):
                 
             loss /= l
             # print training process for each 100 epochs
-            if (epoch + 1)%1000 == 0 or epoch == 0:
+            if (epoch + 1)%500 == 0 or epoch == 0:
                 print("epoch : {}/{}, loss = {:.6f}".format(epoch + 1, epochs, loss))
         
         # compute the mean and standard deviation of tarining samples
@@ -139,6 +175,12 @@ class ae(nn.Module):
         print("self.error_mu={:.4f}, self.error_std={:.4f}".format(self.error_mu_, self.error_std_))
         return score.cpu().detach().numpy().reshape(-1, 1)   #  reconstruction error
     
+    def _encode(self, X):
+        return self.encoding_layer(X)
+    
+    def _decode(self, X):
+        return self.decoding_layer(X)
+    
     def forward(self, X):
-        return self.decoding_layer(self.encoding_layer(X))
+        return self._decode(self._encode(X))
         

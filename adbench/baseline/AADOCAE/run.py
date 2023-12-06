@@ -39,7 +39,7 @@ class AADOCAE():
             alpha=1e-0
             self.model = aadocae(num_feature=X_train.shape[-1], latent_dim=latent_dim, layer_config=layer_config, alpha=alpha)
             # fitting
-            self.model = self.model.fit(X_train=X_train, y_train=y_train, epochs=int(4e3), lr=1e-4, wd=wd)
+            self.model = self.model.fit(X_train=X_train, y_train=y_train, epochs=int(3e3), lr=1e-4, wd=wd)
             print("Latent dim= {}. Weight Decay = {:.6f}".format(latent_dim, wd))
             print("Using " + self.device)
         return self
