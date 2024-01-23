@@ -10,13 +10,13 @@ import os
 from keras import backend as K
 
 from adbench.datasets.data_generator import DataGenerator
-from adbench.myutils import Utils
+from adbench.myutils import Utils, visualize_with_tsne
 
 class RunPipeline():
     def __init__(self, suffix:str=None, mode:str='rla', parallel:str=None,
                  generate_duplicates=True, n_samples_threshold=1000,
                  realistic_synthetic_mode:str=None,
-                 noise_type=None, num_seed:int=1):
+                 noise_type=None, num_seed:int=3):
         '''
         :param suffix: saved file suffix (including the model performance result and model weights)
         :param mode: rla or nla —— ratio of labeled anomalies or number of labeled anomalies
@@ -53,6 +53,8 @@ class RunPipeline():
             self.rla_list = [1.00]
         else:
             self.rla_list = [0.00, 0.01, 0.05, 0.10, 0.25, 0.50, 0.75, 1.00]
+            if self.parallel == 'unsupervise':
+                self.rla_list = [0.00]
 
         # number of labeled anomalies
         self.nla_list = [0, 1, 5, 10, 25, 50, 75, 100]
@@ -63,13 +65,16 @@ class RunPipeline():
             pass
 
         elif self.noise_type == 'duplicated_anomalies':
-            self.noise_params_list = [1, 2, 3, 4, 5, 6]
+            #self.noise_params_list = [1, 2, 3, 4, 5, 6]
+            self.noise_params_list = [2, 4, 8]
 
         elif self.noise_type == 'irrelevant_features':
-            self.noise_params_list = [0.00, 0.01, 0.05, 0.10, 0.25, 0.50]
+            #self.noise_params_list = [0.00, 0.01, 0.05, 0.10, 0.25, 0.50]
+            self.noise_params_list = [0.10, 0.25, 0.50]
 
         elif self.noise_type == 'label_contamination':
-            self.noise_params_list = [0.00, 0.01, 0.05, 0.10, 0.25, 0.50]
+            #self.noise_params_list = [0.00, 0.01, 0.05, 0.10, 0.25, 0.50]
+            self.noise_params_list = [0.025, 0.10, 0.25]
 
         else:
             raise NotImplementedError
@@ -199,10 +204,7 @@ class RunPipeline():
             # fitting
             start_time = time.time()
             self.clf = self.clf.fit(X_train=self.data['X_train'], y_train=self.data['y_train'])
-            #print(self.data['y_train'])
-            #self.clf = self.clf.fit(self.data['X_train'], self.data['y_train'])
             end_time = time.time(); time_fit = end_time - start_time
-
             # predicting score (inference)
             start_time = time.time()
             if self.model_name == 'DAGMM':
@@ -213,10 +215,10 @@ class RunPipeline():
 
             # performance
             result = self.utils.metric(y_true=self.data['y_test'], y_score=score_test, pos_label=1)
-            if self.clf.model.name[-2:] == 'AE' and hasattr(self.clf, 'evaluate_model'):
+            if hasattr(self.clf.model, 'name') and self.clf.model.name[-2:] == 'AE' and hasattr(self.clf, 'evaluate_model'):
                 pass
                 #self.clf.evaluate_model(self.data['X_test'], self.data['y_test'])
-                #self.clf.model.visualize_with_tsne(self.data['y_test'], title=dataset_name)
+                #print(self.data['y_test'])           
             K.clear_session()
             #print(f"Model: {self.model_name}, AUC-ROC: {result['aucroc']}, AUC-PR: {result['aucpr']}")
 
@@ -261,8 +263,14 @@ class RunPipeline():
         os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'result'), exist_ok=True)
         columns = list(self.model_dict.keys()) if clf is None else ['Customized']
         self.clf = clf() if clf else None
-        if self.clf.model_name[-2:] == 'AE' and hasattr(self.clf, 'evaluate_model'):
-                extra_columns = ['Reconstruction', 'Deviation', 'Sum of square', 'Max']
+        if hasattr(self.clf, 'model_name') and self.clf.model_name[-2:] == 'AE' and hasattr(self.clf, 'evaluate_model'):
+                extra_columns = ['rec', 'dev', 'ss', 'max']
+                if self.clf.model_name[-2:] == 'AADOCAE':
+                    extra_columns+=['ts']
+                df_AUCROC = pd.DataFrame(data=None, index=experiment_params, columns=columns+extra_columns)
+                df_AUCPR = pd.DataFrame(data=None, index=experiment_params, columns=columns+extra_columns)
+        if hasattr(self.clf, 'model_name') and self.clf.model_name == 'CVStack':
+                extra_columns = ['local', 'global', 'dependency', 'cluster']
                 df_AUCROC = pd.DataFrame(data=None, index=experiment_params, columns=columns+extra_columns)
                 df_AUCPR = pd.DataFrame(data=None, index=experiment_params, columns=columns+extra_columns)
         else:
@@ -306,7 +314,8 @@ class RunPipeline():
                 else:
                     self.data = self.data_generator.generator(la=la, at_least_one_labeled=True, X=X, y=y,
                                                               realistic_synthetic_mode=self.realistic_synthetic_mode)
-
+                # visualize raw data:
+                #visualize_with_tsne(self.data['X_train'], labels=self.data['y_train'], title=dataset)
             except Exception as error:
                 print(f'Error when generating data: {error}')
                 pass
@@ -342,6 +351,11 @@ class RunPipeline():
                 self.clf = clf; self.model_name = 'Customized'
                 # fit and test model
                 time_fit, time_inference, metrics = self.model_fit(dataset_name=dataset)
+                
+                if hasattr(self.clf, 'visualize_codes'):
+                    self.clf.visualize_codes(save=True, X=self.data['X_train'], labels=self.data['y_train'], specifier='train', title=self.suffix+'_'.join(str(item) for item in experiment_params[i] if item) if experiment_params and experiment_params[i] else self.suffix)
+                    self.clf.visualize_codes(save=True, X=self.data['X_test'], labels=self.data['y_test'], specifier='test', title=self.suffix+'_'.join(str(item) for item in experiment_params[i] if item) if experiment_params and experiment_params[i] else self.suffix)
+                
                 results.append([params, self.model_name, metrics, time_fit, time_inference])
                 print(f'Current experiment parameters: {params}, model: {self.model_name}, metrics: {metrics}, '
                       f'fitting time: {time_fit}, inference time: {time_inference}')
@@ -349,13 +363,21 @@ class RunPipeline():
                 # store and save the result (AUC-ROC, AUC-PR and runtime / inference time)
                 if self.clf.model.name[-2:] == 'AE' and hasattr(self.clf, 'evaluate_model'):
                     extra_results = self.clf.evaluate_model(self.data['X_test'], self.data['y_test'])
-                    df_AUCROC['Reconstruction'].iloc[i], df_AUCPR['Reconstruction'].iloc[i] = extra_results['rec_aucroc'], extra_results['rec_aucpr']
-                    df_AUCROC['Deviation'].iloc[i], df_AUCPR['Deviation'].iloc[i] = extra_results['dev_aucroc'], extra_results['dev_aucpr']
-                    df_AUCROC['Sum of square'].iloc[i], df_AUCPR['Sum of square'].iloc[i] = extra_results['ss_aucroc'], extra_results['ss_aucpr']
-                    df_AUCROC['Max'].iloc[i], df_AUCPR['Max'].iloc[i] = extra_results['max_aucroc'], extra_results['max_aucpr']
-                    
-                df_AUCROC[self.model_name].iloc[i] = metrics['aucroc']
-                df_AUCPR[self.model_name].iloc[i] = metrics['aucpr']
+                    self._write_to_df_auc(extra_results, df_AUCROC=df_AUCROC, df_AUCPR=df_AUCPR, classifiers=extra_columns, location=i)
+                    #df_AUCROC['Reconstruction'].iloc[i], df_AUCPR['Reconstruction'].iloc[i] = extra_results['rec_aucroc'], extra_results['rec_aucpr']
+                    #df_AUCROC['Deviation'].iloc[i], df_AUCPR['Deviation'].iloc[i] = extra_results['dev_aucroc'], extra_results['dev_aucpr']
+                    #df_AUCROC['Sum of square'].iloc[i], df_AUCPR['Sum of square'].iloc[i] = extra_results['ss_aucroc'], extra_results['ss_aucpr']
+                    #df_AUCROC['Max'].iloc[i], df_AUCPR['Max'].iloc[i] = extra_results['max_aucroc'], extra_results['max_aucpr']
+                if self.clf.model.name == 'CVStack':
+                    anomaly_types = self.clf.test_anomaly_types()
+                    df_AUCROC['local'].iloc[i] = anomaly_types[0]
+                    df_AUCROC['global'].iloc[i] = anomaly_types[1]
+                    df_AUCROC['dependency'].iloc[i] = anomaly_types[2]
+                    df_AUCROC['cluster'].iloc[i] = anomaly_types[3]
+                
+                self._write_to_df_auc(metrics, df_AUCROC=df_AUCROC, df_AUCPR=df_AUCPR, classifiers=[''], location=i)    
+                #df_AUCROC[self.model_name].iloc[i] = metrics['aucroc']
+                #df_AUCPR[self.model_name].iloc[i] = metrics['aucpr']
                 df_time_fit[self.model_name].iloc[i] = time_fit
                 df_time_inference[self.model_name].iloc[i] = time_inference
 
@@ -369,3 +391,12 @@ class RunPipeline():
                                                       'result', 'Time(inference)_' + self.suffix + '.csv'), index=True)
 
         return results
+    
+    def _write_to_df_auc(self, results, df_AUCROC, df_AUCPR, classifiers:list, location:int):
+        if classifiers==['']:
+            df_AUCROC[self.model_name].iloc[location], df_AUCPR[self.model_name].iloc[location] = results['aucroc'], results['aucpr']
+            return
+        for clf_name in classifiers:
+            c = '_' if clf_name != '' else ''
+            df_AUCROC[clf_name].iloc[location], df_AUCPR[clf_name].iloc[location] = results[clf_name+c+'aucroc'], results[clf_name+c+'aucpr']
+                

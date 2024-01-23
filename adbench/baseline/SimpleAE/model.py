@@ -40,11 +40,12 @@ class ae(nn.Module):
         # initialize encoder and decoder
         self.norm_layer = normalization
         print('ANN normalization layer: ', self.norm_layer)
-        if self.norm_layer:
+        if self.norm_layer == 'BatchNorm1d':
             # normalization layer
             #e_norm, d_norm = [nn.LayerNorm(n) for n in layer_config[0][:-1]], [nn.LayerNorm(n) for n in layer_config[1][1:]]
             e_norm, d_norm = [nn.BatchNorm1d(n) for n in layer_config[0][:-1]], [nn.BatchNorm1d(n) for n in layer_config[1][1:]]
-            e_structure, d_structure = (e_layers, e_activation, e_norm), (d_layers, d_activation, d_norm)
+            #e_structure, d_structure = (e_layers, e_activation, e_norm), (d_layers, d_activation, d_norm)
+            e_structure, d_structure = (e_layers, e_norm, e_activation), (d_layers, d_norm, d_activation)
         else:
             e_structure, d_structure = (e_layers, e_activation), (d_layers, d_activation)
             #e_structure, d_structure = e_layers, (d_layers, d_activation)
@@ -57,7 +58,7 @@ class ae(nn.Module):
             self._init_weights(layer)
         return
 
-    def __init__(self, num_feature, output_feature=0, contamination:float=0.01, latent_dim=4, hidden_dim=8, activation='leaky_relu', initialization='xavier_normal', layer_config=None, preprocess:bool=True) -> None:
+    def __init__(self, num_feature, output_feature=0, contamination:float=0.01, latent_dim=4, hidden_dim=8, activation='leaky_relu', initialization='xavier_normal', layer_config=None, preprocess:bool=True, ann_normalization='BatchNorm1d') -> None:
         super().__init__()
         self.name = 'AE' # name
         self.num_feature, self.latent_dim, self.hidden_dim, self.initialization, self.activation = num_feature, latent_dim, hidden_dim, initialization, activation # arguments
@@ -75,35 +76,7 @@ class ae(nn.Module):
         else:
             self.layer_config = layer_config
             
-        self._init_layers(layer_config=layer_config,normalization='BatchNorm1d')
-        """ e_config, d_config = [encoding_input_dim] + self.layer_config[0], self.layer_config[1] + [self.output_feature]
-        e_layers = [nn.Linear(e_config[i], e_config[i+1]) for i, _ in enumerate(e_config[:-1])]
-        d_layers = [nn.Linear(d_config[i], d_config[i+1]) for i, _ in enumerate(d_config[:-1])]
-        e_activation, d_activation = [nn.LeakyReLU(0.1) for _ in range(len(e_layers) - 1)], [nn.LeakyReLU(0.1) for _ in range(len(d_layers) - 1)]
-        if activation == 'leaky_relu':
-            e_activation, d_activation = [nn.LeakyReLU(0.1) for _ in range(len(e_layers) - 1)], [nn.LeakyReLU(0.1) for _ in range(len(d_layers) - 1)]
-        elif activation == 'tanh':
-            e_activation, d_activation = [nn.Tanh() for _ in range(len(e_layers) - 1)], [nn.Tanh() for _ in range(len(d_layers) - 1)]
-        elif activation == 'sigmoid':
-            e_activation, d_activation = [nn.Sigmoid() for _ in range(len(e_layers) - 1)], [nn.Sigmoid() for _ in range(len(d_layers) - 1)]
-            
-        # initialize encoder and decoder
-        self.norm_layer = False
-        if self.norm_layer:
-            # normalization layer
-            #e_norm, d_norm = [nn.LayerNorm(n) for n in self.layer_config[0][:-1]], [nn.LayerNorm(n) for n in self.layer_config[1][1:]]
-            e_norm, d_norm = [nn.BatchNorm1d(n) for n in self.layer_config[0][:-1]], [nn.BatchNorm1d(n) for n in self.layer_config[1][1:]]
-            e_structure, d_structure = (e_layers, e_activation, e_norm), (d_layers, d_activation, d_norm)
-        else:
-            e_structure, d_structure = (e_layers, e_activation), (d_layers, d_activation)
-            #e_structure, d_structure = e_layers, (d_layers, d_activation)
-        
-        self.encoding_layer = nn.Sequential(*list(itertools.chain(*itertools.zip_longest(*e_structure)))[:-len(e_structure)+1])
-        #self.encoding_layer = nn.Sequential(*list(e_structure))
-        self.decoding_layer = nn.Sequential(*list(itertools.chain(*itertools.zip_longest(*d_structure)))[:-len(d_structure)+1])
-        # initialize all weights
-        for layer in self.children():
-            self._init_weights(layer) """
+        self._init_layers(layer_config=self.layer_config,normalization=ann_normalization)
             
     def fit(self, X_train, y_train, epochs:int=8000, lr=1e-4, wd=0e-6):
         

@@ -14,24 +14,26 @@ class docae(ae):
         # DOCAE specific components
         self.v = contamination
         self.center = torch.tensor(center)
-        self.alpha = alpha
+        self.alpha, self.beta = alpha, None
+        if self.alpha > 1:
+            self.beta = 1/self.alpha
+            self.alpha = 1
         self.R = nn.Parameter(torch.tensor(R, dtype=float, requires_grad=True))
         self.error = 0
         # TESTING
         self.check_corr = False
-        self.robust_scaling = False
+        self.robust_scaling = True
         
         
     def fit(self, X_train, y_train, epochs:int=6000, lr=1e-4, wd=0e-6):
         # mini-batch size
-        batch_size = math.ceil(X_train.shape[0]/10)
         batch_size = math.ceil(X_train.shape[0]/2)
-        grad_limit = 1e3
+        grad_limit = 1e4
         
         #X_train = torch.tensor(X_train, dtype=torch.float32)
-        optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=wd)
-        criterion = nn.MSELoss(reduction='sum')
-        #summary(self, (X_train.shape[0], X_train.shape[1]), batch_size)
+        optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=wd, nesterov=True, momentum=0.9)
+        #optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=wd)
+        criterion = nn.MSELoss(reduction='none')
         
         for epoch in range(epochs):
             loss, l = 0, X_train.shape[0]
@@ -44,19 +46,23 @@ class docae(ae):
                 #batch_X = torch.tensor(batch_X, dtype=torch.float32)
                 batch_Y = batch_X
                 
-                optimizer.zero_grad()
+                
                 # compute reconstructions
                 outputs = self.forward(batch_X) 
                 # compute training reconstruction loss
-                train_loss = criterion(outputs, batch_Y)
-                if self.error:
+                train_loss = criterion(outputs, batch_Y).sum(dim=-1)
+                if self.beta:
+                    train_loss *= self.beta
+                if self.error is not None:
                     train_loss += self.error
+                train_loss = train_loss.sum()
                 train_loss.backward(retain_graph=False)
                 loss += train_loss.item()
                 # compute accumulated gradients
                 torch.nn.utils.clip_grad_norm_(self.parameters(), grad_limit)
                 # perform parameter update based on current gradients
                 optimizer.step()
+                optimizer.zero_grad()
                 
             loss /= l
             # print training process for each 100 epochs
@@ -64,7 +70,7 @@ class docae(ae):
                 print("epoch : {}/{}, loss = {:.6f}".format(epoch + 1, epochs, loss))
         
         
-        # compute the mean and standard deviation of tarining samples
+        # compute the sum and standard deviation of tarining samples
         #X = torch.tensor(X_train, dtype=torch.float32)
         X = X_train
         error = torch.sum((self.forward(X) - X)**2, dim=-1)#.detach().numpy()
@@ -84,30 +90,38 @@ class docae(ae):
         
     def decision_function(self, X):
         #X = torch.tensor(X, dtype=torch.float32)
-        reconstruction_error = torch.sum((self.forward(X) - X)**2, dim=-1)
-        score = reconstruction_error#.detach().numpy()
-        # normalize errors
-        if self.robust_scaling:
-            score = (score - self.error_median_) / self.error_range_
-            normalized_latent_error = (self.instance_wise_error - self.latent_error_median_) / self.latent_error_range_
-        else:
-            score = (score - self.error_mu_) / self.error_std_ # normalize
-            normalized_latent_error = (self.instance_wise_error - self.latent_error_mu_) / self.latent_error_sigma_
+        score, normalized_latent_error = self.dev_score(X)
         #score =  torch.maximum(score, normalized_latent_error)
         score += normalized_latent_error
         print("self.error_mu={:.4f}, self.error_std={:.4f}, self.latent_error_mu_={:.4f}, self.latent_error_sigma_={:.4f}; alpha = {:.4f}".format(self.error_mu_, self.error_std_, self.latent_error_mu_, self.latent_error_sigma_, self.alpha))
         return score.reshape(-1, 1)   #  reconstruction error
+    
+    def dev_score(self, X):
+        reconstruction_error = torch.sum((self.forward(X) - X)**2, dim=-1)
+        if self.robust_scaling:
+            normalized_reconstruction_error = (reconstruction_error - self.error_median_) / self.error_range_
+            normalized_latent_error = (self.instance_wise_error - self.latent_error_median_) / self.latent_error_range_
+        else:
+            normalized_reconstruction_error = (reconstruction_error - self.error_mu_) / self.error_std_ # normalize
+            normalized_latent_error = (self.instance_wise_error - self.latent_error_mu_) / self.latent_error_sigma_
+        return normalized_reconstruction_error, normalized_latent_error
+    
+    def error_score(self, X):
+        reconstruction_error = torch.sum((self.forward(X) - X)**2, dim=-1)
+        latent_error = self.instance_wise_error
+        return reconstruction_error, latent_error
     
     def _encode(self, X):
         X = self.encoding_layer(X)
         center = self.center.expand(1, X.shape[-1])
         self.instance_wise_error = torch.sum((X - center)**2, dim=-1)
         #self.instance_wise_error = (distance-self.R**2) * (distance > self.R**2)
-        #self.error = self.R**2 + torch.mean(self.instance_wise_error)
-        self.error = torch.mean(self.instance_wise_error)
+        #self.error = self.R**2 + torch.sum(self.instance_wise_error)
+        #self.error = torch.sum(self.instance_wise_error)
+        self.error = self.instance_wise_error
         self.error *= self.alpha
         if self.check_corr:
-            self.error += torch.mean(torch.corrcoef(X.t()))
+            self.error += torch.corrcoef(X)[0]
         return X
     
     def _decode(self, X):

@@ -37,7 +37,7 @@ class SimpleAE():
             lr, wd=1e-4, 1e-6
             self.model = ae(num_feature=X_train.shape[-1], latent_dim=latent_dim, layer_config=layer_config)
             # fitting
-            self.model = self.model.fit(X_train=X_train, y_train=y_train, epochs=int(5e3), lr=lr, wd=wd)
+            self.model = self.model.fit(X_train=X_train, y_train=y_train, epochs=int(1e4), lr=lr, wd=wd)
             print("Latent dim= {}. Weight Decay = {:.6f}".format(latent_dim, wd))
             print("Using " + self.device)
         return self

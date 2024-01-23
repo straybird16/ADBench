@@ -12,7 +12,8 @@ class DOCAE():
     You should define the following fit and predict_score function
     Here we use the LogisticRegression as an example
     '''
-    def __init__(self, seed:int, model_name:str='VAE'):
+    name = 'DOCAE'
+    def __init__(self, seed:int=0, model_name:str='DOCAE'):
         self.seed = seed
         self.utils = Utils()
         self.model_name = model_name
@@ -29,15 +30,15 @@ class DOCAE():
         latent_dim = min(max(math.ceil(math.log2(X_train.shape[0])), 8), X_train.shape[-1]//2)
         latent_dim = min(16, X_train.shape[-1]//2)
         layer_config = [[512, 512, latent_dim], [latent_dim, 64, 64, 64, 64]]
-        layer_config = [[128, 128, 128, 128, latent_dim], [latent_dim, 128, 128, 128, 128]]
+        #layer_config = [[128, 128, 128, 128, latent_dim], [latent_dim, 128, 128, 128, 128]]
         
         with torch.device(self.device):
             # hyper-parameters
-            wd=0e-6
+            lr, wd=1e-4, 1e-6
             alpha=1e-0
             self.model = docae(num_feature=X_train.shape[-1], latent_dim=latent_dim, layer_config=layer_config, alpha=alpha)
             # fitting
-            self.model = self.model.fit(X_train=X_train, y_train=y_train, epochs=int(1e4), lr=1e-4, wd=wd)
+            self.model = self.model.fit(X_train=X_train, y_train=y_train, epochs=int(1e4), lr=lr, wd=wd)
             print("Latent dim= {}. Weight Decay = {:.6f}".format(latent_dim, wd))
         return self
 
