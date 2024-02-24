@@ -91,12 +91,14 @@ class docae(ae):
     def decision_function(self, X):
         #X = torch.tensor(X, dtype=torch.float32)
         score, normalized_latent_error = self.dev_score(X)
+        #score, normalized_latent_error = self.dev_score(X)
         #score =  torch.maximum(score, normalized_latent_error)
         score += normalized_latent_error
         print("self.error_mu={:.4f}, self.error_std={:.4f}, self.latent_error_mu_={:.4f}, self.latent_error_sigma_={:.4f}; alpha = {:.4f}".format(self.error_mu_, self.error_std_, self.latent_error_mu_, self.latent_error_sigma_, self.alpha))
         return score.reshape(-1, 1)   #  reconstruction error
     
     def dev_score(self, X):
+        #return self.error_score(X)
         reconstruction_error = torch.sum((self.forward(X) - X)**2, dim=-1)
         if self.robust_scaling:
             normalized_reconstruction_error = (reconstruction_error - self.error_median_) / self.error_range_
@@ -109,6 +111,9 @@ class docae(ae):
     def error_score(self, X):
         reconstruction_error = torch.sum((self.forward(X) - X)**2, dim=-1)
         latent_error = self.instance_wise_error
+        """ if self.robust_scaling:
+            reconstruction_error = (reconstruction_error - self.error_median_) / (self.error_range_ + 1e-11)
+            latent_error = (self.instance_wise_error - self.latent_error_median_) / (self.latent_error_range_ + 1e-11) """
         return reconstruction_error, latent_error
     
     def _encode(self, X):
